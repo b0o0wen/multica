@@ -100,6 +100,7 @@ export function CustomPropertyValueEditor({
 
   return (
     <CustomPropertyValueInput
+      key={`${issue.id}:${property.id}`}
       property={property}
       value={value}
       defaultOpen={defaultOpen}
@@ -514,6 +515,10 @@ function ListPropertyEditor({
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const errorId = useId();
+
+  useEffect(() => {
+    if (open) setError(null);
+  }, [open]);
 
   const items = Array.isArray(value) ? value : [];
   const placeholder =

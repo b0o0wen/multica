@@ -30,13 +30,18 @@ const issue: Issue = {
 
 function renderEditor() {
   const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
-  return render(
+  const editor = (currentIssue: Issue, currentProperty = property) => (
     <QueryClientProvider client={client}>
       <I18nProvider locale="en" resources={{ en: { issues: enIssues } }}>
-        <CustomPropertyValueEditor issue={issue} property={property} defaultOpen />
+        <CustomPropertyValueEditor issue={currentIssue} property={currentProperty} defaultOpen />
       </I18nProvider>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  const view = render(editor(issue));
+  return {
+    ...view,
+    showIssue: (next: Issue, nextProperty = property) => view.rerender(editor(next, nextProperty)),
+  };
 }
 
 describe("list property editing", () => {
@@ -77,6 +82,61 @@ describe("list property editing", () => {
     });
     await user.type(input, "example.com{Enter}");
     await waitFor(() => expect(input).toHaveValue(""));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("keeps the draft but clears the old error when reopened", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+    await user.type(await screen.findByRole("textbox", { name: property.name }), "example.com{Enter}");
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "https://existing.example" }));
+
+    const input = await screen.findByRole("textbox", { name: property.name });
+    expect(input).toHaveValue("example.com");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(input).toHaveAttribute("aria-invalid", "false");
+    expect(input).not.toHaveAttribute("aria-describedby");
+  });
+
+  it.each(["issue", "property"])("resets the draft and error when switching %s in the same editor", async (target) => {
+    const user = userEvent.setup();
+    const { showIssue } = renderEditor();
+    await user.type(await screen.findByRole("textbox", { name: property.name }), "example.com{Enter}");
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+
+    const nextProperty = target === "property" ? { ...property, id: "p-2" } : property;
+    showIssue({
+      ...issue,
+      id: target === "issue" ? "issue-2" : issue.id,
+      properties: { [nextProperty.id]: ["https://next.example"] },
+    }, nextProperty);
+
+    expect(await screen.findByRole("textbox", { name: property.name })).toHaveValue("");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove https://next.example" })).toBeEnabled();
+  });
+
+  it("does not carry an in-flight failure into another issue's draft", async () => {
+    const user = userEvent.setup();
+    let fail!: (error: Error) => void;
+    vi.mocked(api.setIssueProperty).mockImplementationOnce(() => new Promise((_resolve, reject) => {
+      fail = reject;
+    }));
+    const { showIssue } = renderEditor();
+    await user.type(await screen.findByRole("textbox", { name: property.name }), "https://old.example{Enter}");
+    await waitFor(() => expect(api.setIssueProperty).toHaveBeenCalledTimes(1));
+
+    showIssue({ ...issue, id: "issue-2" });
+    const input = await screen.findByRole("textbox", { name: property.name });
+    expect(input).toHaveValue("");
+    expect(input).not.toHaveAttribute("readonly");
+    await user.type(input, "https://new.example");
+
+    await act(async () => fail(new Error("Previous issue write failed")));
+    expect(input).toHaveValue("https://new.example");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
