@@ -869,6 +869,7 @@
       "false_label": "No",
       "value_placeholder": "Enter value…",
       "url_placeholder": "https://…",
+      "url_scheme_required": "Start the URL with http:// or https://.",
       "number_placeholder": "0",
       "actor_search_placeholder": "Search members…",
       "open_link": "Open link",

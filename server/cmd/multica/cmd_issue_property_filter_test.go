@@ -359,7 +359,6 @@ func TestRunIssueListFetchesCatalogOnce(t *testing.T) {
 	}
 }
 
-
 func TestEncodeIssuePropertyListValues(t *testing.T) {
 	// Both write paths — `issue property set --value` and
 	// `issue create --property` — go through encodeIssuePropertyValue, so this

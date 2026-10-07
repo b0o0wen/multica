@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { CalendarDays, Check, ExternalLink, X } from "lucide-react";
 import { toast } from "sonner";
 import type { Issue, IssueProperty, IssuePropertyValue } from "@multica/core/types";
-import { hasUnknownActorRef } from "@multica/core/types";
+import { hasUnknownActorRef, isListPropertyType } from "@multica/core/types";
 import {
   useSetIssueProperty,
   useUnsetIssueProperty,
@@ -106,14 +106,21 @@ export function CustomPropertyValueEditor({
       open={open}
       onOpenChange={onOpenChange}
       onChange={(next) => {
+        // List editors await the write and show failures beside the draft.
+        if (isListPropertyType(property.type) && !isCustomPropertyReadOnly(property, value)) {
+          const variables = { issueId: issue.id, propertyId: property.id };
+          return (next === undefined
+            ? unsetProperty.mutateAsync(variables)
+            : setProperty.mutateAsync({ ...variables, value: next })
+          ).then(() => {});
+        }
         if (next === undefined) {
-          unsetProperty.mutate(
+          return unsetProperty.mutate(
             { issueId: issue.id, propertyId: property.id },
             { onError },
           );
-          return;
         }
-        setProperty.mutate(
+        return setProperty.mutate(
           { issueId: issue.id, propertyId: property.id, value: next },
           { onError },
         );
@@ -125,7 +132,7 @@ export function CustomPropertyValueEditor({
 /**
  * Mutation-free custom-property editor. Create flows use this while an issue
  * still exists only as a draft; issue detail wraps it above with the normal
- * optimistic mutations.
+ * optimistic mutations. List editors await onChange before clearing the draft.
  */
 export function CustomPropertyValueInput({
   property,
@@ -139,7 +146,7 @@ export function CustomPropertyValueInput({
 }: {
   property: IssueProperty;
   value: IssuePropertyValue | undefined;
-  onChange: (value: IssuePropertyValue | undefined) => void;
+  onChange: (value: IssuePropertyValue | undefined) => void | Promise<void>;
   defaultOpen?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -496,16 +503,17 @@ function ListPropertyEditor({
   value: IssuePropertyValue | undefined;
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  onCommit: (next: IssuePropertyValue) => void;
-  onClear: () => void;
+  onCommit: (next: IssuePropertyValue) => void | Promise<void>;
+  onClear: () => void | Promise<void>;
   trigger?: React.ReactNode;
   triggerRender?: React.ReactElement<Record<string, unknown>>;
 }) {
   const { t } = useT("issues");
   const [draft, setDraft] = useState("");
-  useEffect(() => {
-    if (open) setDraft("");
-  }, [open]);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const errorId = useId();
 
   const items = Array.isArray(value) ? value : [];
   const placeholder =
@@ -513,21 +521,37 @@ function ListPropertyEditor({
       ? t(($) => $.pickers.custom_property.url_placeholder)
       : t(($) => $.pickers.custom_property.value_placeholder);
 
+  const save = async (next: string[], clearDraft = false) => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    setError(null);
+    try {
+      if (next.length === 0) await onClear();
+      else await onCommit(next);
+      if (clearDraft) setDraft("");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  };
+
   const add = () => {
+    if (savingRef.current) return;
     const trimmed = draft.trim();
     if (!trimmed) return;
-    // Keep the draft when the entry cannot possibly be valid so a rejected
-    // typo stays editable instead of vanishing (the server still has the
-    // final say for anything subtler).
-    if (property.type === "multi_url" && !/^https?:\/\//i.test(trimmed)) return;
-    setDraft("");
-    if (items.includes(trimmed)) return;
-    onCommit([...items, trimmed]);
-  };
-  const remove = (item: string) => {
-    const next = items.filter((entry) => entry !== item);
-    if (next.length === 0) onClear();
-    else onCommit(next);
+    if (property.type === "multi_url" && !/^https?:\/\//i.test(trimmed)) {
+      setError(t(($) => $.pickers.custom_property.url_scheme_required));
+      return;
+    }
+    if (items.includes(trimmed)) {
+      setDraft("");
+      setError(null);
+      return;
+    }
+    void save([...items, trimmed], true);
   };
 
   return (
@@ -560,7 +584,8 @@ function ListPropertyEditor({
                   variant="ghost"
                   size="icon-sm"
                   aria-label={t(($) => $.pickers.custom_property.remove_item, { value: item })}
-                  onClick={() => remove(item)}
+                  disabled={saving}
+                  onClick={() => void save(items.filter((entry) => entry !== item))}
                 >
                   <X className="size-3.5" />
                 </Button>
@@ -574,15 +599,28 @@ function ListPropertyEditor({
             add();
           }}
           className="flex items-center gap-2"
+          aria-busy={saving}
         >
           <Input
             autoFocus
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            readOnly={saving}
+            aria-label={property.name}
+            aria-invalid={error !== null}
+            aria-describedby={error ? errorId : undefined}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              setError(null);
+            }}
             placeholder={placeholder}
             className="h-8"
           />
         </form>
+        {error && (
+          <p id={errorId} role="alert" className="text-caption text-destructive">
+            {error}
+          </p>
+        )}
       </PopoverContent>
     </Popover>
   );

@@ -86,9 +86,14 @@ The ":#rrggbb" color suffix is optional.
 The actor types hold workspace members; they take no options:
   multica property create --name Reviewer --type actor
 
-multi_text / multi_url hold free-form lists (comma-separated --value), also
-without options:
-  multica property create --name Related links --type multi_url`,
+multi_text / multi_url hold free-form lists without options:
+  multica property create --name "Related links" --type multi_url
+Set their values with issue property set --value or issue create --property.
+Use comma-separated values for simple entries, or a JSON array of strings.
+JSON is required for entries containing commas or input starting with "[":
+  multica issue property set <issue-id> --name "Related links" \
+      --value '["https://en.wikipedia.org/wiki/Washington,_D.C."]'
+  multica issue property set <issue-id> --name Aliases --value '["[draft] spec"]'`,
 	Args: exactArgs(0),
 	RunE: runPropertyCreate,
 }
@@ -143,9 +148,11 @@ var issuePropertySetCmd = &cobra.Command{
   text / url    --value "any string"
   multi_text    --value "alpha,beta"      (comma-separated strings)
   multi_url     --value "https://a.example,https://b.example"
-Entries that contain a comma must use the JSON array form instead:
+For multi_text / multi_url, entries containing commas or input starting with
+"[" must use a JSON array of strings instead:
   multi_url     --value '["https://en.wikipedia.org/wiki/Washington,_D.C."]'
-  multi_text    --value '["Smith, John","Doe, Jane"]' `,
+  multi_text    --value '["Smith, John","Doe, Jane"]'
+  multi_text    --value '["[draft] spec"]'`,
 	Args: exactArgs(1),
 	RunE: runIssuePropertySet,
 }

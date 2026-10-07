@@ -152,7 +152,9 @@ multica issue property unset <issue-id> --name Environment
   duplicates dropped, order kept, max 20). They take no options. An entry that
   itself contains a comma cannot survive that form — pass a JSON array instead:
   `--value '["Smith, John","https://en.wikipedia.org/wiki/Washington,_D.C."]'`.
-  The array form is always safe; use it whenever any entry has a comma.
+  The array form is always safe; use it whenever any entry has a comma or the
+  input starts with `[`, for example `--value '["[draft] spec"]'`. The same
+  forms work during creation: `--property 'Aliases=["Smith, John","[draft] spec"]'`.
 - Definitions may include an optional catalog icon for visual identification;
   it does not change the property's type or value validation.
 - Agents cannot create or edit property definitions (owner/admin humans only).
